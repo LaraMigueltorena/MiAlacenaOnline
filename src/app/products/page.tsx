@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Poppins } from "next/font/google";
 
 const poppins = Poppins({
@@ -17,6 +17,11 @@ type Product = {
 };
 
 const LS_KEY = "mialacena_products";
+
+// Extiende el tipo del input date para usar showPicker sin "any"
+type DateInputEl = HTMLInputElement & {
+  showPicker?: () => void;
+};
 
 function formatDate(iso: string) {
   if (!iso) return "";
@@ -41,7 +46,7 @@ function todayISO() {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [loaded, setLoaded] = useState(false); // 👈 importante
+  const [loaded, setLoaded] = useState(false);
 
   const [isOpen, setIsOpen] = useState(false);
   const [alertProduct, setAlertProduct] = useState<Product | null>(null);
@@ -57,7 +62,7 @@ export default function ProductsPage() {
   const [dateError, setDateError] = useState(false);
 
   // Ref date input
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
+  const dateInputRef = useRef<DateInputEl | null>(null);
 
   // Cargar desde localStorage
   useEffect(() => {
@@ -67,19 +72,21 @@ export default function ProductsPage() {
         const parsed: Product[] = JSON.parse(raw);
         setProducts(parsed);
       }
-    } catch {}
-    setLoaded(true); // 👈 habilita persistencia recién ahora
+    } catch {
+      // noop
+    }
+    setLoaded(true);
   }, []);
 
   // Persistir en localStorage (solo cuando ya cargamos)
   useEffect(() => {
-    if (!loaded) return; // 👈 evita pisar con []
+    if (!loaded) return;
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(products));
-    } catch {}
+    } catch {
+      // noop
+    }
   }, [products, loaded]);
-
-  const anyLowStock = useMemo(() => products.some((p) => p.qty === 1), [products]);
 
   function resetForm() {
     setName("");
@@ -326,7 +333,7 @@ export default function ProductsPage() {
                   if (!el) return;
                   try {
                     el.focus(); // gesto de usuario sobre el input
-                    (el as any).showPicker?.();
+                    el.showPicker?.();
                   } catch {
                     el.click(); // fallback
                   }
@@ -347,7 +354,10 @@ export default function ProductsPage() {
                       parseISOToLocalDate(value) < parseISOToLocalDate(todayISO())
                     );
                   }}
-                  onFocus={(e) => (e.currentTarget as any).showPicker?.()}
+                  onFocus={(e) => {
+                    const el = e.currentTarget as DateInputEl;
+                    el.showPicker?.();
+                  }}
                   className={`w-full rounded-full px-4 py-2 outline-none ${
                     dateError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
                   }`}
