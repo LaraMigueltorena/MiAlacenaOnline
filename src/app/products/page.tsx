@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Poppins } from "next/font/google";
+
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+});
 
 type Product = {
   id: string;
@@ -18,30 +24,61 @@ function formatDate(iso: string) {
   return `${d}/${m}/${y}`;
 }
 
+// Date en hora local (evita TZ)
+function parseISOToLocalDate(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+// Hoy (yyyy-mm-dd) en hora local
+function todayISO() {
+  const t = new Date();
+  const yyyy = t.getFullYear();
+  const mm = String(t.getMonth() + 1).padStart(2, "0");
+  const dd = String(t.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false); // 👈 importante
 
-  // Form state
+  const [isOpen, setIsOpen] = useState(false);
+  const [alertProduct, setAlertProduct] = useState<Product | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [qty, setQty] = useState<number | "">("");
 
-  // Load from localStorage
+  // Validación fecha
+  const [dateError, setDateError] = useState(false);
+
+  // Ref date input
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Cargar desde localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) setProducts(JSON.parse(raw));
+      if (raw) {
+        const parsed: Product[] = JSON.parse(raw);
+        setProducts(parsed);
+      }
     } catch {}
+    setLoaded(true); // 👈 habilita persistencia recién ahora
   }, []);
 
-  // Persist changes
+  // Persistir en localStorage (solo cuando ya cargamos)
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify(products));
-  }, [products]);
+    if (!loaded) return; // 👈 evita pisar con []
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(products));
+    } catch {}
+  }, [products, loaded]);
 
-  // Low stock flag (any product with qty === 1)
   const anyLowStock = useMemo(() => products.some((p) => p.qty === 1), [products]);
 
   function resetForm() {
@@ -49,6 +86,8 @@ export default function ProductsPage() {
     setDescription("");
     setExpiresAt("");
     setQty("");
+    setDateError(false);
+    setEditingId(null);
   }
 
   function handleOpen() {
@@ -56,19 +95,53 @@ export default function ProductsPage() {
     setIsOpen(true);
   }
 
+  function handleEdit(p: Product) {
+    setEditingId(p.id);
+    setName(p.name);
+    setDescription(p.description);
+    setExpiresAt(p.expiresAt);
+    setQty(p.qty);
+    setDateError(parseISOToLocalDate(p.expiresAt) < parseISOToLocalDate(todayISO()));
+    setIsOpen(true);
+  }
+
   function handleSave() {
-    if (!name.trim() || !description.trim() || !expiresAt || qty === "" || Number(qty) <= 0) {
-      alert("Completá todos los campos. La cantidad debe ser mayor a 0.");
+    const isPastDate = parseISOToLocalDate(expiresAt) < parseISOToLocalDate(todayISO());
+    setDateError(isPastDate);
+
+    if (
+      !name.trim() ||
+      !description.trim() ||
+      !expiresAt ||
+      qty === "" ||
+      Number(qty) <= 0 ||
+      isPastDate
+    ) {
+      alert(
+        "Completá todos los campos correctamente. La cantidad debe ser mayor a 0 y la fecha no puede ser anterior a hoy."
+      );
       return;
     }
-    const newProduct: Product = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      description: description.trim(),
-      expiresAt,
-      qty: Number(qty),
-    };
-    setProducts((prev) => [...prev, newProduct]);
+
+    if (editingId) {
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === editingId
+            ? { ...p, name: name.trim(), description: description.trim(), expiresAt, qty: Number(qty) }
+            : p
+        )
+      );
+    } else {
+      const newProduct: Product = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        description: description.trim(),
+        expiresAt,
+        qty: Number(qty),
+      };
+      setProducts((prev) => [...prev, newProduct]);
+    }
+
     setIsOpen(false);
     resetForm();
   }
@@ -77,7 +150,7 @@ export default function ProductsPage() {
     setProducts((prev) =>
       prev
         .map((p) => (p.id === id ? { ...p, qty: p.qty - 1 } : p))
-        .filter((p) => p.qty > 0) // si llega a 0, se elimina
+        .filter((p) => p.qty > 0)
     );
   }
 
@@ -86,28 +159,29 @@ export default function ProductsPage() {
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-4 md:px-6 py-8 md:py-10">
+    <section className={`${poppins.className} mx-auto max-w-6xl px-4 md:px-6 py-8 md:py-10`}>
+      {/* Título + botón agregar */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl md:text-3xl font-semibold text-zinc-900">Lista de Productos</h2>
 
         <button
           onClick={handleOpen}
-          className="flex items-center gap-2 rounded-full px-4 py-2 bg-zinc-900 text-white text-sm shadow hover:bg-zinc-800 transition"
+          className="rounded-full px-6 py-2.5 bg-zinc-900 text-white text-sm font-medium 
+                     shadow-md hover:shadow-lg hover:bg-zinc-800 active:scale-[0.98] transition"
           aria-label="Agregar producto"
         >
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-700">
-            +
-          </span>
-          Agregar
+          Agregar Producto
         </button>
       </div>
 
+      {/* Tabla */}
       <div className="rounded-2xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden">
         <div className="grid grid-cols-12 px-6 py-3 text-sm font-medium text-zinc-600">
+          <div className="col-span-1"></div>
           <div className="col-span-3">Nombre</div>
           <div className="col-span-3">Descripción</div>
           <div className="col-span-3">Fecha de Vencimiento</div>
-          <div className="col-span-3">Cantidad</div>
+          <div className="col-span-2">Cantidad</div>
         </div>
 
         <div className="divide-y divide-zinc-100">
@@ -124,22 +198,46 @@ export default function ProductsPage() {
                   key={p.id}
                   className="grid grid-cols-12 items-center px-6 py-3 text-sm text-zinc-800"
                 >
+                  {/* Lápiz negro (SVG) */}
+                  <div className="col-span-1">
+                    <button
+                      onClick={() => handleEdit(p)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-zinc-100 transition"
+                      title="Editar producto"
+                      aria-label={`Editar ${p.name}`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 text-black"
+                        fill="currentColor"
+                      >
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l8.47-8.47.92.92L5.92 19.58zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Nombre + alerta bajo stock */}
                   <div className="col-span-3 flex items-center gap-2">
                     <span>{p.name}</span>
                     {p.qty === 1 && (
-                      <span
-                        className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-orange-100 text-orange-700"
+                      <button
+                        onClick={() => setAlertProduct(p)}
+                        className="flex items-center justify-center"
                         title="Producto con poco stock"
+                        aria-label={`Alerta de poco stock para ${p.name}`}
                       >
-                        !
-                      </span>
+                        <span className="inline-flex items-center justify-center h-5 w-5 text-lg">
+                          ⚠️
+                        </span>
+                      </button>
                     )}
                   </div>
 
                   <div className="col-span-3 truncate">{p.description}</div>
                   <div className="col-span-3">{formatDate(p.expiresAt)}</div>
 
-                  <div className="col-span-3 flex items-center gap-3">
+                  <div className="col-span-2 flex items-center gap-3">
                     <span className="inline-flex h-8 min-w-[2rem] items-center justify-center rounded bg-zinc-100 px-2">
                       {p.qty}
                     </span>
@@ -168,24 +266,26 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {anyLowStock && (
-        <div className="mt-6 flex items-center justify-center gap-2 text-sm text-zinc-600">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-100 text-orange-700">
-            !
-          </span>
-          <span>Producto con poco stock</span>
-        </div>
-      )}
-
+      {/* ───────────── Modal Agregar/Editar ───────────── */}
       {isOpen && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
           aria-modal="true"
           role="dialog"
+          onClick={() => {
+            setIsOpen(false);
+            resetForm();
+          }}
         >
-          <div className="w-full max-w-lg rounded-xl bg-[#eef3f1] p-6 shadow-xl relative">
+          <div
+            className={`${poppins.className} w-full max-w-lg rounded-xl bg-[#eef3f1] p-6 shadow-xl relative`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                setIsOpen(false);
+                resetForm();
+              }}
               className="absolute right-3 top-3 text-zinc-700 hover:text-black"
               aria-label="Cerrar"
               title="Cerrar"
@@ -194,7 +294,7 @@ export default function ProductsPage() {
             </button>
 
             <h3 className="mb-6 text-3xl text-center font-semibold text-zinc-900">
-              Agregar Productos
+              {editingId ? "Editar Producto" : "Agregar Productos"}
             </h3>
 
             <div className="space-y-4">
@@ -218,14 +318,45 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div>
-                <label className="mb-1 block text-sm text-zinc-700">Fecha de Vencimiento</label>
+              {/* Fecha: abre calendario al clickear toda la fila */}
+              <div
+                className="cursor-pointer"
+                onClick={() => {
+                  const el = dateInputRef.current;
+                  if (!el) return;
+                  try {
+                    el.focus(); // gesto de usuario sobre el input
+                    (el as any).showPicker?.();
+                  } catch {
+                    el.click(); // fallback
+                  }
+                }}
+              >
+                <label className="mb-1 block text-sm text-zinc-700">
+                  Fecha de Vencimiento
+                </label>
                 <input
+                  ref={dateInputRef}
                   type="date"
                   value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                  className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none"
+                  min={todayISO()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setExpiresAt(value);
+                    setDateError(
+                      parseISOToLocalDate(value) < parseISOToLocalDate(todayISO())
+                    );
+                  }}
+                  onFocus={(e) => (e.currentTarget as any).showPicker?.()}
+                  className={`w-full rounded-full px-4 py-2 outline-none ${
+                    dateError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
+                  }`}
                 />
+                {dateError && (
+                  <p className="mt-1 text-sm text-red-600">
+                    La fecha no puede ser anterior a hoy.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -250,6 +381,39 @@ export default function ProductsPage() {
                 Guardar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────── Modal de alerta por poco stock ───────────── */}
+      {alertProduct && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          aria-modal="true"
+          role="dialog"
+          onClick={() => setAlertProduct(null)}
+        >
+          <div
+            className={`${poppins.className} w-full max-w-md rounded-xl bg-white p-6 shadow-xl relative text-center`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setAlertProduct(null)}
+              className="absolute right-3 top-3 text-zinc-700 hover:text-black"
+              aria-label="Cerrar alerta"
+            >
+              ✕
+            </button>
+
+            <div className="flex justify-center mb-4">
+              <span className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-yellow-100 text-yellow-500 text-3xl">
+                ⚠️
+              </span>
+            </div>
+
+            <p className="text-lg font-medium text-zinc-900">
+              El producto <span className="font-semibold">“{alertProduct.name}”</span> se encuentra con poco stock
+            </p>
           </div>
         </div>
       )}
