@@ -19,7 +19,7 @@ type Product = {
 const LS_KEY = "mialacena_products";
 
 // Límites
-const NAME_MAX = 20;
+const NAME_MAX = 40;
 const DESC_MAX = 100;
 const QTY_MAX = 1_000_000;
 
@@ -159,9 +159,12 @@ export default function ProductsPage() {
       }
     }
 
-    // Cantidad 1..QTY_MAX
+    // Cantidad 1..QTY_MAX y ENTERA
     if (qty === "" || !Number.isFinite(Number(qty)) || Number(qty) < 1) {
       setQtyError("La cantidad debe ser mayor o igual a 1.");
+      valid = false;
+    } else if (!Number.isInteger(Number(qty))) {
+      setQtyError("La cantidad debe ser un número entero.");
       valid = false;
     } else if (Number(qty) > QTY_MAX) {
       setQtyError(`La cantidad no puede superar ${QTY_MAX.toLocaleString()}.`);
@@ -255,7 +258,7 @@ export default function ProductsPage() {
               .map((p) => (
                 <div
                   key={p.id}
-                  className="grid grid-cols-12 items-center px-6 py-3 text-sm text-zinc-800"
+                  className="grid grid-cols-12 items-start px-6 py-3 text-sm text-zinc-800"
                 >
                   {/* Lápiz negro (SVG) */}
                   <div className="col-span-1">
@@ -278,7 +281,7 @@ export default function ProductsPage() {
 
                   {/* Nombre + alerta bajo stock */}
                   <div className="col-span-3 flex items-center gap-2">
-                    <span>{p.name}</span>
+                    <span className="whitespace-pre-wrap break-all">{p.name}</span>
                     {p.qty === 1 && (
                       <button
                         onClick={() => setAlertProduct(p)}
@@ -293,7 +296,11 @@ export default function ProductsPage() {
                     )}
                   </div>
 
-                  <div className="col-span-3 truncate">{p.description}</div>
+                  {/* Descripción envuelve y muestra todo */}
+                  <div className="col-span-3 whitespace-pre-wrap break-all">
+                    {p.description || "—"}
+                  </div>
+
                   <div className="col-span-3">{formatDate(p.expiresAt)}</div>
 
                   <div className="col-span-2 flex items-center gap-3">
@@ -461,22 +468,25 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              {/* Cantidad (requerida 1..QTY_MAX) */}
+              {/* Cantidad (requerida 1..QTY_MAX y ENTERA) */}
               <div>
                 <label className="mb-1 block text-sm text-zinc-700">Cantidad</label>
                 <input
                   type="number"
                   inputMode="numeric"
                   pattern="[0-9]*"
+                  step={1}
                   min={1}
                   max={QTY_MAX}
                   value={qty}
                   onChange={(e) => {
-                    const v = e.target.value;
+                    const raw = e.target.value;
 
-                    // parse seguro: solo números finitos, si no -> ""
-                    const parsed = Number(v);
-                    let n: number | "" = v === "" ? "" : Number.isFinite(parsed) ? parsed : "";
+                    // normalizar: permitir solo números; si trae separador decimal, convertir y forzar ENTERO
+                    const normalized = raw.replace(",", "."); // por si usan coma
+                    const parsed = Number(normalized);
+                    let n: number | "" =
+                      raw === "" ? "" : Number.isFinite(parsed) ? Math.floor(parsed) : "";
 
                     setQtyNote(null);
 
@@ -487,7 +497,7 @@ export default function ProductsPage() {
                       }
                     }
 
-                    setQty(n); // nunca NaN
+                    setQty(n); // nunca NaN, y siempre entero
                     if (n !== "" && n >= 1 && n <= QTY_MAX) {
                       setQtyError(null);
                     }
