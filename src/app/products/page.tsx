@@ -18,6 +18,11 @@ type Product = {
 
 const LS_KEY = "mialacena_products";
 
+// Límites
+const NAME_MAX = 20;
+const DESC_MAX = 100;
+const QTY_MAX = 1_000_000;
+
 // Extiende el tipo del input date para usar showPicker sin "any"
 type DateInputEl = HTMLInputElement & {
   showPicker?: () => void;
@@ -62,17 +67,24 @@ export default function ProductsPage() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
   const [qtyError, setQtyError] = useState<string | null>(null);
+  const [qtyNote, setQtyNote] = useState<string | null>(null); // aviso amable al llegar al tope
 
   // Ref date input
   const dateInputRef = useRef<DateInputEl | null>(null);
 
-  // Cargar desde localStorage
+  // Cargar desde localStorage (y sanear longitudes si vienen largas)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
         const parsed: Product[] = JSON.parse(raw);
-        setProducts(parsed);
+        const sanitized = parsed.map((p) => ({
+          ...p,
+          name: (p.name ?? "").slice(0, NAME_MAX),
+          description: (p.description ?? "").slice(0, DESC_MAX),
+          qty: Number.isFinite(p.qty as number) ? Number(p.qty) : 1,
+        }));
+        setProducts(sanitized);
       }
     } catch {
       // noop
@@ -98,6 +110,7 @@ export default function ProductsPage() {
     setNameError(null);
     setDateError(null);
     setQtyError(null);
+    setQtyNote(null);
     setEditingId(null);
   }
 
@@ -108,8 +121,8 @@ export default function ProductsPage() {
 
   function handleEdit(p: Product) {
     setEditingId(p.id);
-    setName(p.name);
-    setDescription(p.description ?? "");
+    setName(p.name.slice(0, NAME_MAX));
+    setDescription((p.description ?? "").slice(0, DESC_MAX));
     setExpiresAt(p.expiresAt);
     setQty(p.qty);
     // Validación inicial de fecha (por si ya está vencida)
@@ -121,9 +134,12 @@ export default function ProductsPage() {
   function validateForm() {
     let valid = true;
 
-    // Nombre requerido
+    // Nombre requerido y longitud
     if (!name.trim()) {
       setNameError("Ingresá un nombre.");
+      valid = false;
+    } else if (name.trim().length > NAME_MAX) {
+      setNameError(`Máximo ${NAME_MAX} caracteres.`);
       valid = false;
     } else {
       setNameError(null);
@@ -143,9 +159,12 @@ export default function ProductsPage() {
       }
     }
 
-    // Cantidad >= 1
-    if (qty === "" || Number(qty) < 1) {
+    // Cantidad 1..QTY_MAX
+    if (qty === "" || !Number.isFinite(Number(qty)) || Number(qty) < 1) {
       setQtyError("La cantidad debe ser mayor o igual a 1.");
+      valid = false;
+    } else if (Number(qty) > QTY_MAX) {
+      setQtyError(`La cantidad no puede superar ${QTY_MAX.toLocaleString()}.`);
       valid = false;
     } else {
       setQtyError(null);
@@ -155,27 +174,27 @@ export default function ProductsPage() {
   }
 
   function handleSave() {
+    // Truncar antes de validar/guardar
+    const safeName = name.trim().slice(0, NAME_MAX);
+    const safeDesc = description.trim().slice(0, DESC_MAX);
+    setName(safeName);
+    setDescription(safeDesc);
+
     if (!validateForm()) return;
 
     if (editingId) {
       setProducts((prev) =>
         prev.map((p) =>
           p.id === editingId
-            ? {
-                ...p,
-                name: name.trim(),
-                description: description.trim(), // opcional: puede quedar "" y está bien
-                expiresAt,
-                qty: Number(qty),
-              }
+            ? { ...p, name: safeName, description: safeDesc, expiresAt, qty: Number(qty) }
             : p
         )
       );
     } else {
       const newProduct: Product = {
         id: crypto.randomUUID(),
-        name: name.trim(),
-        description: description.trim(), // opcional
+        name: safeName,
+        description: safeDesc,
         expiresAt,
         qty: Number(qty),
       };
@@ -334,7 +353,7 @@ export default function ProductsPage() {
             </button>
 
             <h3 className="mb-6 text-3xl text-center font-semibold text-zinc-900">
-              {editingId ? "Editar Producto" : "Agregar Productos"}
+              {editingId ? "Editar Producto" : "Agregar Producto"}
             </h3>
 
             <div className="space-y-4">
@@ -344,26 +363,56 @@ export default function ProductsPage() {
                 <input
                   value={name}
                   onChange={(e) => {
-                    setName(e.target.value);
-                    if (e.target.value.trim()) setNameError(null);
+                    const v = e.target.value.slice(0, NAME_MAX);
+                    setName(v);
+                    if (v.trim()) setNameError(null);
                   }}
+                  maxLength={NAME_MAX}
                   className={`w-full rounded-full px-4 py-2 outline-none placeholder:text-zinc-600 ${
                     nameError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
                   }`}
                   placeholder="Nombre Completo"
                 />
-                {nameError && <p className="mt-1 text-sm text-red-600">{nameError}</p>}
+                <div className="flex items-center justify-between mt-1">
+                  {nameError ? (
+                    <p className="text-xs text-red-600">{nameError}</p>
+                  ) : (
+                    <div />
+                  )}
+                  <p
+                    className={`text-xs ${
+                      name.length >= NAME_MAX ? "text-red-600" : "text-zinc-500"
+                    }`}
+                  >
+                    {`${name.length} / ${NAME_MAX}`}
+                  </p>
+                </div>
               </div>
 
               {/* Descripción (opcional) */}
               <div>
-                <label className="mb-1 block text-sm text-zinc-700">Descripción (opcional)</label>
+                <label className="mb-1 block text-sm text-zinc-700">
+                  Descripción (opcional)
+                </label>
                 <input
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value.slice(0, DESC_MAX);
+                    setDescription(v);
+                  }}
+                  maxLength={DESC_MAX}
                   className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none placeholder:text-zinc-600"
                   placeholder="Descripción"
                 />
+                <div className="flex justify-end mt-1">
+                  <p
+                    className={`text-xs ${
+                      description.length >= DESC_MAX ? "text-red-600" : "text-zinc-500"
+                    }`}
+                  >
+                    {`${description.length} / ${DESC_MAX}`}
+                  </p>
+                </div>
               </div>
 
               {/* Fecha: abre calendario al clickear toda la fila */}
@@ -412,25 +461,47 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              {/* Cantidad (requerida >= 1) */}
+              {/* Cantidad (requerida 1..QTY_MAX) */}
               <div>
                 <label className="mb-1 block text-sm text-zinc-700">Cantidad</label>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   min={1}
+                  max={QTY_MAX}
                   value={qty}
                   onChange={(e) => {
                     const v = e.target.value;
-                    const n = v === "" ? "" : Number(v);
-                    setQty(n);
-                    if (v !== "" && Number(v) >= 1) setQtyError(null);
+
+                    // parse seguro: solo números finitos, si no -> ""
+                    const parsed = Number(v);
+                    let n: number | "" = v === "" ? "" : Number.isFinite(parsed) ? parsed : "";
+
+                    setQtyNote(null);
+
+                    if (typeof n === "number") {
+                      if (n > QTY_MAX) n = QTY_MAX;
+                      if (n === QTY_MAX) {
+                        setQtyNote(`Alcanzaste el máximo (${QTY_MAX.toLocaleString()}).`);
+                      }
+                    }
+
+                    setQty(n); // nunca NaN
+                    if (n !== "" && n >= 1 && n <= QTY_MAX) {
+                      setQtyError(null);
+                    }
                   }}
                   className={`w-full rounded-full px-4 py-2 outline-none ${
                     qtyError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
                   }`}
                   placeholder="1"
                 />
-                {qtyError && <p className="mt-1 text-sm text-red-600">{qtyError}</ p>}
+                {qtyError ? (
+                  <p className="mt-1 text-sm text-red-600">{qtyError}</p>
+                ) : qtyNote ? (
+                  <p className="mt-1 text-xs text-amber-600">{qtyNote}</p>
+                ) : null}
               </div>
 
               <button
