@@ -11,7 +11,7 @@ const poppins = Poppins({
 type Product = {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   expiresAt: string; // yyyy-mm-dd
   qty: number;
 };
@@ -58,8 +58,10 @@ export default function ProductsPage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [qty, setQty] = useState<number | "">("");
 
-  // Validación fecha
-  const [dateError, setDateError] = useState(false);
+  // Validaciones
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
+  const [qtyError, setQtyError] = useState<string | null>(null);
 
   // Ref date input
   const dateInputRef = useRef<DateInputEl | null>(null);
@@ -93,7 +95,9 @@ export default function ProductsPage() {
     setDescription("");
     setExpiresAt("");
     setQty("");
-    setDateError(false);
+    setNameError(null);
+    setDateError(null);
+    setQtyError(null);
     setEditingId(null);
   }
 
@@ -105,36 +109,65 @@ export default function ProductsPage() {
   function handleEdit(p: Product) {
     setEditingId(p.id);
     setName(p.name);
-    setDescription(p.description);
+    setDescription(p.description ?? "");
     setExpiresAt(p.expiresAt);
     setQty(p.qty);
-    setDateError(parseISOToLocalDate(p.expiresAt) < parseISOToLocalDate(todayISO()));
+    // Validación inicial de fecha (por si ya está vencida)
+    const isPast = parseISOToLocalDate(p.expiresAt) < parseISOToLocalDate(todayISO());
+    setDateError(isPast ? "La fecha no puede ser anterior a hoy." : null);
     setIsOpen(true);
   }
 
-  function handleSave() {
-    const isPastDate = parseISOToLocalDate(expiresAt) < parseISOToLocalDate(todayISO());
-    setDateError(isPastDate);
+  function validateForm() {
+    let valid = true;
 
-    if (
-      !name.trim() ||
-      !description.trim() ||
-      !expiresAt ||
-      qty === "" ||
-      Number(qty) <= 0 ||
-      isPastDate
-    ) {
-      alert(
-        "Completá todos los campos correctamente. La cantidad debe ser mayor a 0 y la fecha no puede ser anterior a hoy."
-      );
-      return;
+    // Nombre requerido
+    if (!name.trim()) {
+      setNameError("Ingresá un nombre.");
+      valid = false;
+    } else {
+      setNameError(null);
     }
+
+    // Fecha requerida y no anterior a hoy
+    if (!expiresAt) {
+      setDateError("Ingresá una fecha de vencimiento.");
+      valid = false;
+    } else {
+      const isPast = parseISOToLocalDate(expiresAt) < parseISOToLocalDate(todayISO());
+      if (isPast) {
+        setDateError("La fecha no puede ser anterior a hoy.");
+        valid = false;
+      } else {
+        setDateError(null);
+      }
+    }
+
+    // Cantidad >= 1
+    if (qty === "" || Number(qty) < 1) {
+      setQtyError("La cantidad debe ser mayor o igual a 1.");
+      valid = false;
+    } else {
+      setQtyError(null);
+    }
+
+    return valid;
+  }
+
+  function handleSave() {
+    if (!validateForm()) return;
 
     if (editingId) {
       setProducts((prev) =>
         prev.map((p) =>
           p.id === editingId
-            ? { ...p, name: name.trim(), description: description.trim(), expiresAt, qty: Number(qty) }
+            ? {
+                ...p,
+                name: name.trim(),
+                description: description.trim(), // opcional: puede quedar "" y está bien
+                expiresAt,
+                qty: Number(qty),
+              }
             : p
         )
       );
@@ -142,7 +175,7 @@ export default function ProductsPage() {
       const newProduct: Product = {
         id: crypto.randomUUID(),
         name: name.trim(),
-        description: description.trim(),
+        description: description.trim(), // opcional
         expiresAt,
         qty: Number(qty),
       };
@@ -305,18 +338,26 @@ export default function ProductsPage() {
             </h3>
 
             <div className="space-y-4">
+              {/* Nombre (requerido) */}
               <div>
                 <label className="mb-1 block text-sm text-zinc-700">Nombre Completo</label>
                 <input
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none placeholder:text-zinc-600"
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (e.target.value.trim()) setNameError(null);
+                  }}
+                  className={`w-full rounded-full px-4 py-2 outline-none placeholder:text-zinc-600 ${
+                    nameError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
+                  }`}
                   placeholder="Nombre Completo"
                 />
+                {nameError && <p className="mt-1 text-sm text-red-600">{nameError}</p>}
               </div>
 
+              {/* Descripción (opcional) */}
               <div>
-                <label className="mb-1 block text-sm text-zinc-700">Descripción</label>
+                <label className="mb-1 block text-sm text-zinc-700">Descripción (opcional)</label>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -350,9 +391,13 @@ export default function ProductsPage() {
                   onChange={(e) => {
                     const value = e.target.value;
                     setExpiresAt(value);
-                    setDateError(
-                      parseISOToLocalDate(value) < parseISOToLocalDate(todayISO())
-                    );
+                    if (!value) {
+                      setDateError("Ingresá una fecha de vencimiento.");
+                      return;
+                    }
+                    const isPast =
+                      parseISOToLocalDate(value) < parseISOToLocalDate(todayISO());
+                    setDateError(isPast ? "La fecha no puede ser anterior a hoy." : null);
                   }}
                   onFocus={(e) => {
                     const el = e.currentTarget as DateInputEl;
@@ -363,12 +408,11 @@ export default function ProductsPage() {
                   }`}
                 />
                 {dateError && (
-                  <p className="mt-1 text-sm text-red-600">
-                    La fecha no puede ser anterior a hoy.
-                  </p>
+                  <p className="mt-1 text-sm text-red-600">{dateError}</p>
                 )}
               </div>
 
+              {/* Cantidad (requerida >= 1) */}
               <div>
                 <label className="mb-1 block text-sm text-zinc-700">Cantidad</label>
                 <input
@@ -377,11 +421,16 @@ export default function ProductsPage() {
                   value={qty}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setQty(v === "" ? "" : Number(v));
+                    const n = v === "" ? "" : Number(v);
+                    setQty(n);
+                    if (v !== "" && Number(v) >= 1) setQtyError(null);
                   }}
-                  className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none"
+                  className={`w-full rounded-full px-4 py-2 outline-none ${
+                    qtyError ? "bg-red-100 border border-red-500" : "bg-zinc-300/60"
+                  }`}
                   placeholder="1"
                 />
+                {qtyError && <p className="mt-1 text-sm text-red-600">{qtyError}</ p>}
               </div>
 
               <button
