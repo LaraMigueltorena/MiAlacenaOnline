@@ -35,8 +35,7 @@ const DEFAULT_CATEGORIES = [
   "Otros",
 ];
 
-// Extiende el tipo del input date para usar showPicker sin "any"
-type DateInputEl = HTMLInputElement & { showPicker?: () => void };
+
 
 function formatDate(iso: string) {
   if (!iso) return "";
@@ -106,6 +105,9 @@ export default function ProductsPage() {
   const [qty, setQty] = useState<number | "">("");
   const [category, setCategory] = useState<string>("Otros"); // 👈 NUEVO
   const [newCategory, setNewCategory] = useState<string>(""); // 👈 NUEVO (alta rápida)
+  const [newCatError, setNewCatError] = useState<string | null>(null); // 👈 NUEVO
+const newCatInputRef = useRef<HTMLInputElement | null>(null);        // 👈 NUEVO
+
 
   // Validaciones
   const [nameError, setNameError] = useState<string | null>(null);
@@ -113,8 +115,7 @@ export default function ProductsPage() {
   const [qtyError, setQtyError] = useState<string | null>(null);
   const [qtyNote, setQtyNote] = useState<string | null>(null);
 
-  // Ref date input
-  const dateInputRef = useRef<DateInputEl | null>(null);
+
 
   // estado popup por color
   const [statusAlert, setStatusAlert] = useState<{ product: Product; state: ExpiryState } | null>(null);
@@ -188,19 +189,21 @@ export default function ProductsPage() {
     if (hasAttention) setExpiryModalOpen(true);
   }, [loaded, products]);
 
-  function resetForm() {
-    setName("");
-    setDescription("");
-    setExpiresAt("");
-    setQty("");
-    setCategory("Otros");
-    setNewCategory("");
-    setNameError(null);
-    setDateError(null);
-    setQtyError(null);
-    setQtyNote(null);
-    setEditingId(null);
-  }
+function resetForm() {
+  setName("");
+  setDescription("");
+  setExpiresAt("");
+  setQty("");
+  setCategory("Otros");
+  setNewCategory("");
+  setNameError(null);
+  setDateError(null);
+  setQtyError(null);
+  setQtyNote(null);
+  setNewCatError(null); // 👈 NUEVO
+  setEditingId(null);
+}
+
 
   function handleOpen() {
     resetForm();
@@ -239,6 +242,7 @@ export default function ProductsPage() {
     } else {
       setNameError(null);
     }
+    
 
     if (!expiresAt) {
       setDateError("Ingresá una fecha de vencimiento.");
@@ -266,18 +270,31 @@ export default function ProductsPage() {
       setQtyError(null);
     }
 
-    if (!category.trim()) {
-      // seguridad extra
-      setCategory("Otros");
-    }
+    // ✅ NUEVO: si se eligió "Otros", exigir escribir la nueva
+if (category === "Otros") {
+  if (!newCategory.trim()) {
+    setNewCatError("Escribí la nueva categoría.");
+    valid = false;
+  } else {
+    setNewCatError(null);
+  }
+} else {
+  setNewCatError(null);
+}
+
 
     return valid;
   }
+  
 
   function handleSave() {
     // Si se cargó nueva categoría, la damos de alta y la usamos
-    const chosenCategory = (newCategory.trim() || category).trim();
-    upsertCategory(chosenCategory);
+    // ✅ NUEVO: usar nueva categoría SOLO si seleccionaste "Otros"
+const chosenCategory = category === "Otros" ? newCategory.trim() : category;
+if (category === "Otros" && chosenCategory) {
+  upsertCategory(chosenCategory);
+}
+
 
     const safeName = name.trim().slice(0, NAME_MAX);
     const safeDesc = description.trim().slice(0, DESC_MAX);
@@ -660,32 +677,51 @@ export default function ProductsPage() {
               </div>
 
               {/* Categoría */}
-              <div>
-                <label className="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Categoría</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none dark:bg-zinc-800"
-                  >
-                    {categories
-                      .slice()
-                      .sort((a, b) => a.localeCompare(b))
-                      .map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                  </select>
-                  <input
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    placeholder="Nueva categoría (opcional)"
-                    className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none placeholder:text-zinc-600 dark:bg-zinc-800 dark:placeholder:text-zinc-400"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Si completás “Nueva categoría”, se creará y se utilizará para este producto.
-                </p>
-              </div>
+<div>
+  <label className="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Categoría</label>
+
+  <select
+    value={category}
+    onChange={(e) => {
+      const v = e.target.value;
+      setCategory(v);
+      if (v !== "Otros") {
+        setNewCategory("");
+        setNewCatError(null);
+      }
+    }}
+    className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none dark:bg-zinc-800"
+    title="Seleccionar categoría"
+  >
+    {categories
+      .slice()
+      .sort((a, b) => a.localeCompare(b))
+      .map((c) => (
+        <option key={c} value={c}>{c}</option>
+      ))}
+  </select>
+
+  {/* Solo mostrar el input si la opción es "Otros" */}
+  {category === "Otros" && (
+    <div className="mt-2">
+      <input
+        value={newCategory}
+        onChange={(e) => setNewCategory(e.target.value)}
+        placeholder="Escribí la nueva categoría"
+        className="w-full rounded-full bg-zinc-300/60 px-4 py-2 outline-none placeholder:text-zinc-600 dark:bg-zinc-800 dark:placeholder:text-zinc-400"
+      />
+      {newCatError && (
+        <p className="mt-1 text-sm text-red-600 dark:text-red-400">{newCatError}</p>
+      )}
+      {!newCatError && (
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Seleccionaste <strong>Otros</strong>: escribí el nombre de la nueva categoría.
+        </p>
+      )}
+    </div>
+  )}
+</div>
+
 
               {/* Descripción */}
               <div>
@@ -705,34 +741,37 @@ export default function ProductsPage() {
               </div>
 
               {/* Fecha */}
-              <div
-                className="cursor-pointer"
-                onClick={() => {
-                  const el = dateInputRef.current;
-                  if (!el) return;
-                  try { el.focus(); el.showPicker?.(); } catch { el.click(); }
-                }}
-              >
-                <label className="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Fecha de Vencimiento</label>
-                <input
-                  ref={dateInputRef}
-                  type="date"
-                  value={expiresAt}
-                  min={todayISO()}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setExpiresAt(value);
-                    if (!value) { setDateError("Ingresá una fecha de vencimiento."); return; }
-                    const isPast = parseISOToLocalDate(value) < parseISOToLocalDate(todayISO());
-                    setDateError(isPast ? "La fecha no puede ser anterior a hoy." : null);
-                  }}
-                  onFocus={(e) => (e.currentTarget as DateInputEl).showPicker?.()}
-                  className={`w-full rounded-full px-4 py-2 outline-none ${
-                    dateError ? "bg-red-100 border border-red-500 dark:bg-red-900/30 dark:border-red-700" : "bg-zinc-300/60 dark:bg-zinc-800"
-                  }`}
-                />
-                {dateError && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{dateError}</p>}
-              </div>
+<div>
+  <label className="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">
+    Fecha de Vencimiento
+  </label>
+  <input
+    type="date"
+    value={expiresAt}
+    min={todayISO()}
+    onChange={(e) => {
+      const value = e.target.value;
+      setExpiresAt(value);
+      if (!value) {
+        setDateError("Ingresá una fecha de vencimiento.");
+        return;
+      }
+      const isPast = parseISOToLocalDate(value) < parseISOToLocalDate(todayISO());
+      setDateError(isPast ? "La fecha no puede ser anterior a hoy." : null);
+    }}
+    // sin ref, sin showPicker ni handlers que lo abran
+    className={`w-full rounded-full px-4 py-2 outline-none ${
+      dateError
+        ? "bg-red-100 border border-red-500 dark:bg-red-900/30 dark:border-red-700"
+        : "bg-zinc-300/60 dark:bg-zinc-800"
+    }`}
+    placeholder="aaaa-mm-dd"
+  />
+  {dateError && (
+    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{dateError}</p>
+  )}
+</div>
+
 
               {/* Cantidad */}
               <div>
