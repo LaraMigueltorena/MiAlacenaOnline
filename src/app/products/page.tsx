@@ -125,14 +125,25 @@ export default function ProductsPage() {
   // Cargar desde localStorage
   useEffect(() => {
     try {
-      const rawCats = localStorage.getItem(LS_CATS);
-      if (rawCats) {
-        const parsed = JSON.parse(rawCats) as string[];
-        if (Array.isArray(parsed) && parsed.length) {
-          setCategories(Array.from(new Set([...DEFAULT_CATEGORIES, ...parsed])));
-        }
-      }
-    } catch {}
+  const raw = localStorage.getItem(LS_KEY);
+  if (raw) {
+    // tipo antiguo sin category (por compatibilidad)
+    type ProductLegacy = Omit<Product, "category"> & { category?: string };
+
+    const parsed = JSON.parse(raw) as ProductLegacy[];
+
+    const sanitized: Product[] = parsed.map((p) => ({
+      ...p,
+      name: (p.name ?? "").slice(0, NAME_MAX),
+      description: (p.description ?? "").slice(0, DESC_MAX),
+      qty: Number.isFinite(p.qty as number) ? Number(p.qty) : 1,
+      category: p.category ? String(p.category) : "Otros",
+    }));
+
+    setProducts(sanitized);
+  }
+} catch {}
+
 
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -496,14 +507,17 @@ export default function ProductsPage() {
 
     {/* Orden (select corto) */}
     <select
-      value={orderBy}
-      onChange={(e) => setOrderBy(e.target.value as any)}
-      className="min-w-[140px] h-8 rounded-full bg-zinc-100 px-3 text-[14px] outline-none dark:bg-zinc-800"
-      title="Ordenar por"
-    >
-      <option value="status">Orden: Fecha de vencimiento</option>
-      <option value="category">Orden: Categoría</option>
-    </select>
+  value={orderBy}
+  onChange={(e) =>
+    setOrderBy(e.target.value === "category" ? "category" : "status")
+  }
+  className="min-w-[140px] h-8 rounded-full bg-zinc-100 px-3 text-[14px] outline-none dark:bg-zinc-800"
+  title="Ordenar por"
+>
+  <option value="status">Orden: Fecha de vencimiento</option>
+  <option value="category">Orden: Categoría</option>
+</select>
+
   </div>
 </div>
 
